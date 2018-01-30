@@ -110,9 +110,9 @@ class CobblerInventory(object):
         if self.args.host:
             data_to_print += self.get_host_info()
         else:
-            self.inventory['_meta'] = { 'hostvars': {} }
+            self.inventory['_meta'] = {'hostvars': {}}
             for hostname in self.cache:
-                self.inventory['_meta']['hostvars'][hostname] = {'cobbler': self.cache[hostname] }
+                self.inventory['_meta']['hostvars'][hostname] = {'cobbler': self.cache[hostname]}
             data_to_print += self.json_format_dict(self.inventory, True)
 
         print(data_to_print)
@@ -120,6 +120,9 @@ class CobblerInventory(object):
     def _connect(self):
         if not self.conn:
             self.conn = xmlrpclib.Server(self.cobbler_host, allow_none=True)
+            self.token = None
+            if self.cobbler_username is not None:
+                self.token = self.conn.login(self.cobbler_username, self.cobbler_password)
 
     def is_cache_valid(self):
         """ Determines if the cache files have expired, or if it is still valid """
@@ -140,6 +143,12 @@ class CobblerInventory(object):
         config.read(os.path.dirname(os.path.realpath(__file__)) + '/cobbler.ini')
 
         self.cobbler_host = config.get('cobbler', 'host')
+        self.cobbler_username = None
+        self.cobbler_password = None
+        if config.has_option('cobbler', 'username'):
+            self.cobbler_username = config.get('cobbler', 'username')
+        if config.has_option('cobbler', 'password'):
+            self.cobbler_password = config.get('cobbler', 'password')
 
         # Cache related
         cache_path = config.get('cobbler', 'cache_path')
@@ -163,12 +172,14 @@ class CobblerInventory(object):
         self._connect()
         self.groups = dict()
         self.hosts = dict()
-
-        data = self.conn.get_systems()
+        if self.token is not None:
+            data = self.conn.get_systems(self.token)
+        else:
+            data = self.conn.get_systems()
 
         for host in data:
             # Get the FQDN for the host and add it to the right groups
-            dns_name = host['hostname'] #None
+            dns_name = host['hostname']  # None
             ksmeta = None
             interfaces = host['interfaces']
             # hostname is often empty for non-static IP hosts
@@ -179,7 +190,7 @@ class CobblerInventory(object):
                         if this_dns_name is not None and this_dns_name is not "":
                             dns_name = this_dns_name
 
-            if dns_name == '':
+            if dns_name == '' or dns_name is None:
                 continue
 
             status = host['status']
@@ -218,11 +229,11 @@ class CobblerInventory(object):
             # Need to load index from cache
             self.load_cache_from_cache()
 
-        if not self.args.host in self.cache:
+        if self.args.host not in self.cache:
             # try updating the cache
             self.update_cache()
 
-            if not self.args.host in self.cache:
+            if self.args.host not in self.cache:
                 # host might not exist anymore
                 return self.json_format_dict({}, True)
 
@@ -260,7 +271,7 @@ class CobblerInventory(object):
     def to_safe(self, word):
         """ Converts 'bad' characters in a string to underscores so they can be used as Ansible groups """
 
-        return re.sub("[^A-Za-z0-9\-]", "_", word)
+        return re.sub(r"[^A-Za-z0-9\-]", "_", word)
 
     def json_format_dict(self, data, pretty=False):
         """ Converts a dict to a JSON object and dumps it as a formatted string """

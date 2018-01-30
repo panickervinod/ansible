@@ -39,7 +39,7 @@ import re
 import sys
 import argparse
 import os
-from urlparse import urlparse
+from ansible.module_utils.six.moves.urllib.parse import urlparse
 from time import time
 try:
     import json
@@ -47,16 +47,13 @@ except ImportError:
     import simplejson as json
 
 try:
-    import azure
-    from azure import WindowsAzureError
     from azure.servicemanagement import ServiceManagementService
 except ImportError as e:
-    print("failed=True msg='`azure` library required for this script'")
-    sys.exit(1)
-
+    sys.exit("ImportError: {0}".format(str(e)))
 
 # Imports for ansible
 import ConfigParser
+
 
 class AzureInventory(object):
     def __init__(self):
@@ -175,10 +172,9 @@ class AzureInventory(object):
         parser.add_argument('--list-images', action='store',
                             help='Get all available images.')
         parser.add_argument('--refresh-cache',
-            action='store_true', default=False,
-            help='Force refresh of thecache by making API requests to Azure '
-                 '(default: False - use cache files)',
-        )
+                            action='store_true', default=False,
+                            help='Force refresh of thecache by making API requests to Azure '
+                            '(default: False - use cache files)')
         parser.add_argument('--host', action='store',
                             help='Get all information about an instance.')
         self.args = parser.parse_args()
@@ -194,24 +190,18 @@ class AzureInventory(object):
         try:
             for cloud_service in self.sms.list_hosted_services():
                 self.add_deployments(cloud_service)
-        except WindowsAzureError as e:
-            print("Looks like Azure's API is down:")
-            print("")
-            print(e)
-            sys.exit(1)
+        except Exception as e:
+            sys.exit("Error: Failed to access cloud services - {0}".format(str(e)))
 
     def add_deployments(self, cloud_service):
         """Makes an Azure API call to get the list of virtual machines
         associated with a cloud service.
         """
         try:
-            for deployment in self.sms.get_hosted_service_properties(cloud_service.service_name,embed_detail=True).deployments.deployments:
+            for deployment in self.sms.get_hosted_service_properties(cloud_service.service_name, embed_detail=True).deployments.deployments:
                 self.add_deployment(cloud_service, deployment)
-        except WindowsAzureError as e:
-            print("Looks like Azure's API is down:")
-            print("")
-            print(e)
-            sys.exit(1)
+        except Exception as e:
+            sys.exit("Error: Failed to access deployments - {0}".format(str(e)))
 
     def add_deployment(self, cloud_service, deployment):
         """Adds a deployment to the inventory and index"""
@@ -256,7 +246,7 @@ class AzureInventory(object):
     def push(self, my_dict, key, element):
         """Pushed an element onto an array that may not have been defined in the dict."""
         if key in my_dict:
-            my_dict[key].append(element);
+            my_dict[key].append(element)
         else:
             my_dict[key] = [element]
 
@@ -281,7 +271,7 @@ class AzureInventory(object):
 
     def to_safe(self, word):
         """Escapes any characters that would be invalid in an ansible group name."""
-        return re.sub("[^A-Za-z0-9\-]", "_", word)
+        return re.sub(r"[^A-Za-z0-9\-]", "_", word)
 
     def json_format_dict(self, data, pretty=False):
         """Converts a dict to a JSON object and dumps it as a formatted string."""

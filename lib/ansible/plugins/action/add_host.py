@@ -20,9 +20,10 @@
 from __future__ import (absolute_import, division, print_function)
 __metaclass__ = type
 
+from ansible.errors import AnsibleError
+from ansible.module_utils.six import string_types
 from ansible.plugins.action import ActionBase
 from ansible.parsing.utils.addresses import parse_address
-from ansible.errors import AnsibleError
 
 try:
     from __main__ import display
@@ -39,18 +40,13 @@ class ActionModule(ActionBase):
     TRANSFERS_FILES = False
 
     def run(self, tmp=None, task_vars=None):
-        if task_vars is None:
-            task_vars = dict()
+
+        self._supports_check_mode = True
 
         result = super(ActionModule, self).run(tmp, task_vars)
 
-        if self._play_context.check_mode:
-            result['skipped'] = True
-            result['msg'] = 'check mode not supported for this module'
-            return result
-
         # Parse out any hostname:port patterns
-        new_name = self._task.args.get('name', self._task.args.get('hostname', None))
+        new_name = self._task.args.get('name', self._task.args.get('hostname', self._task.args.get('host', None)))
         display.vv("creating host via 'add_host': hostname=%s" % new_name)
 
         try:
@@ -67,7 +63,14 @@ class ActionModule(ActionBase):
         # add it to the group if that was specified
         new_groups = []
         if groups:
-            for group_name in groups.split(","):
+            if isinstance(groups, list):
+                group_list = groups
+            elif isinstance(groups, string_types):
+                group_list = groups.split(",")
+            else:
+                raise AnsibleError("Groups must be specified as a list.", obj=self._task)
+
+            for group_name in group_list:
                 if group_name not in new_groups:
                     new_groups.append(group_name.strip())
 

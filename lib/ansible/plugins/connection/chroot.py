@@ -1,44 +1,58 @@
 # Based on local.py (c) 2012, Michael DeHaan <michael.dehaan@gmail.com>
+#
 # (c) 2013, Maykel Moya <mmoya@speedyrails.com>
 # (c) 2015, Toshio Kuratomi <tkuratomi@ansible.com>
-#
-# This file is part of Ansible
-#
-# Ansible is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# Ansible is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with Ansible.  If not, see <http://www.gnu.org/licenses/>.
+# Copyright (c) 2017 Ansible Project
+# GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
+
 from __future__ import (absolute_import, division, print_function)
 __metaclass__ = type
+
+DOCUMENTATION = """
+    author: Maykel Moya <mmoya@speedyrails.com>
+    connection: chroot
+    short_description: Interact with local chroot
+    description:
+        - Run commands or put/fetch files to an existing chroot on the Ansible controller.
+    version_added: "1.1"
+    options:
+      remote_addr:
+        description:
+            - The path of the chroot you want to access.
+        default: inventory_hostname
+        vars:
+            - name: ansible_host
+      executable:
+        description:
+            - User specified executable shell
+        ini:
+          - section: defaults
+            key: executable
+        env:
+          - name: ANSIBLE_EXECUTABLE
+        vars:
+          - name: ansible_executable
+"""
 
 import distutils.spawn
 import os
 import os.path
-import pipes
 import subprocess
 import traceback
 
 from ansible import constants as C
 from ansible.errors import AnsibleError
-from ansible.plugins.connection import ConnectionBase
 from ansible.module_utils.basic import is_executable
-from ansible.utils.unicode import to_bytes
+from ansible.module_utils.six.moves import shlex_quote
+from ansible.module_utils._text import to_bytes
+from ansible.plugins.connection import ConnectionBase, BUFSIZE
+
 
 try:
     from __main__ import display
 except ImportError:
     from ansible.utils.display import Display
     display = Display()
-
-BUFSIZE = 65536
 
 
 class Connection(ConnectionBase):
@@ -65,7 +79,11 @@ class Connection(ConnectionBase):
             raise AnsibleError("%s is not a directory" % self.chroot)
 
         chrootsh = os.path.join(self.chroot, 'bin/sh')
-        if not is_executable(chrootsh):
+        # Want to check for a usable bourne shell inside the chroot.
+        # is_executable() == True is sufficient.  For symlinks it
+        # gets really complicated really fast.  So we punt on finding that
+        # out.  As long as it's a symlink we assume that it will work
+        if not (is_executable(chrootsh) or (os.path.lexists(chrootsh) and os.path.islink(chrootsh))):
             raise AnsibleError("%s does not look like a chrootable dir (/bin/sh missing)" % self.chroot)
 
         self.chroot_cmd = distutils.spawn.find_executable('chroot')
@@ -91,9 +109,9 @@ class Connection(ConnectionBase):
         local_cmd = [self.chroot_cmd, self.chroot, executable, '-c', cmd]
 
         display.vvv("EXEC %s" % (local_cmd), host=self.chroot)
-        local_cmd = map(to_bytes, local_cmd)
+        local_cmd = [to_bytes(i, errors='surrogate_or_strict') for i in local_cmd]
         p = subprocess.Popen(local_cmd, shell=False, stdin=stdin,
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
         return p
 
@@ -125,9 +143,9 @@ class Connection(ConnectionBase):
         super(Connection, self).put_file(in_path, out_path)
         display.vvv("PUT %s TO %s" % (in_path, out_path), host=self.chroot)
 
-        out_path = pipes.quote(self._prefix_login_path(out_path))
+        out_path = shlex_quote(self._prefix_login_path(out_path))
         try:
-            with open(in_path, 'rb') as in_file:
+            with open(to_bytes(in_path, errors='surrogate_or_strict'), 'rb') as in_file:
                 try:
                     p = self._buffered_exec_command('dd of=%s bs=%s' % (out_path, BUFSIZE), stdin=in_file)
                 except OSError:
@@ -147,13 +165,13 @@ class Connection(ConnectionBase):
         super(Connection, self).fetch_file(in_path, out_path)
         display.vvv("FETCH %s TO %s" % (in_path, out_path), host=self.chroot)
 
-        in_path = pipes.quote(self._prefix_login_path(in_path))
+        in_path = shlex_quote(self._prefix_login_path(in_path))
         try:
             p = self._buffered_exec_command('dd if=%s bs=%s' % (in_path, BUFSIZE))
         except OSError:
             raise AnsibleError("chroot connection requires dd command in the chroot")
 
-        with open(out_path, 'wb+') as out_file:
+        with open(to_bytes(out_path, errors='surrogate_or_strict'), 'wb+') as out_file:
             try:
                 chunk = p.stdout.read(BUFSIZE)
                 while chunk:

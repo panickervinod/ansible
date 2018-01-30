@@ -28,6 +28,8 @@
 
 import os
 
+from ansible.module_utils.six import iteritems
+
 
 def openstack_argument_spec():
     # DEPRECATED: This argument spec is only used for the deprecated old
@@ -36,17 +38,17 @@ def openstack_argument_spec():
     # Consume standard OpenStack environment variables.
     # This is mainly only useful for ad-hoc command line operation as
     # in playbooks one would assume variables would be used appropriately
-    OS_AUTH_URL=os.environ.get('OS_AUTH_URL', 'http://127.0.0.1:35357/v2.0/')
-    OS_PASSWORD=os.environ.get('OS_PASSWORD', None)
-    OS_REGION_NAME=os.environ.get('OS_REGION_NAME', None)
-    OS_USERNAME=os.environ.get('OS_USERNAME', 'admin')
-    OS_TENANT_NAME=os.environ.get('OS_TENANT_NAME', OS_USERNAME)
+    OS_AUTH_URL = os.environ.get('OS_AUTH_URL', 'http://127.0.0.1:35357/v2.0/')
+    OS_PASSWORD = os.environ.get('OS_PASSWORD', None)
+    OS_REGION_NAME = os.environ.get('OS_REGION_NAME', None)
+    OS_USERNAME = os.environ.get('OS_USERNAME', 'admin')
+    OS_TENANT_NAME = os.environ.get('OS_TENANT_NAME', OS_USERNAME)
 
     spec = dict(
-        login_username                  = dict(default=OS_USERNAME),
-        auth_url                        = dict(default=OS_AUTH_URL),
-        region_name                     = dict(default=OS_REGION_NAME),
-        availability_zone               = dict(default=None),
+        login_username=dict(default=OS_USERNAME),
+        auth_url=dict(default=OS_AUTH_URL),
+        region_name=dict(default=OS_REGION_NAME),
+        availability_zone=dict(),
     )
     if OS_PASSWORD:
         spec['login_password'] = dict(default=OS_PASSWORD)
@@ -58,10 +60,11 @@ def openstack_argument_spec():
         spec['login_tenant_name'] = dict(required=True)
     return spec
 
+
 def openstack_find_nova_addresses(addresses, ext_tag, key_name=None):
 
     ret = []
-    for (k, v) in addresses.iteritems():
+    for (k, v) in iteritems(addresses):
         if key_name and k == key_name:
             ret.extend([addrs['addr'] for addrs in v])
         else:
@@ -70,14 +73,15 @@ def openstack_find_nova_addresses(addresses, ext_tag, key_name=None):
                     ret.append(interface_spec['addr'])
     return ret
 
+
 def openstack_full_argument_spec(**kwargs):
     spec = dict(
         cloud=dict(default=None),
         auth_type=dict(default=None),
-        auth=dict(default=None, no_log=True),
+        auth=dict(default=None, type='dict', no_log=True),
         region_name=dict(default=None),
         availability_zone=dict(default=None),
-        verify=dict(default=True, aliases=['validate_certs']),
+        verify=dict(default=None, type='bool', aliases=['validate_certs']),
         cacert=dict(default=None),
         cert=dict(default=None),
         key=dict(default=None, no_log=True),
@@ -86,6 +90,9 @@ def openstack_full_argument_spec(**kwargs):
         api_timeout=dict(default=None, type='int'),
         endpoint_type=dict(
             default='public', choices=['public', 'internal', 'admin']
+        ),
+        identity_api_version=dict(
+            default=None, choices=['2.0', '3']
         )
     )
     spec.update(kwargs)
